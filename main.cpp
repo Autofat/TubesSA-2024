@@ -1,176 +1,165 @@
 #include <algorithm>
+#include <chrono>
+#include <cstdlib>
 #include <ctime>
 #include <fstream>
-#include <iomanip>
+#include <functional>
 #include <iostream>
 #include <queue>
 #include <vector>
 
 using namespace std;
 
-struct BruteForceResult {
-  int max_value;
-  vector<bool> best_selected;
-};
-
-void knapsack_recursive(int index, int current_weight, int current_value,
-                        const vector<int> &weights, const vector<int> &values,
-                        int capacity, vector<bool> &selected,
-                        BruteForceResult &result) {
-  if (current_weight > capacity)
-    return;
-  if (index == weights.size()) {
-    if (current_value > result.max_value) {
-      result.max_value = current_value;
-      result.best_selected = selected;
-    }
-    return;
-  }
-
-  // Do not include the current item
-  knapsack_recursive(index + 1, current_weight, current_value, weights, values,
-                     capacity, selected, result);
-
-  // Include the current item
-  selected[index] = true;
-  knapsack_recursive(index + 1, current_weight + weights[index],
-                     current_value + values[index], weights, values, capacity,
-                     selected, result);
-  selected[index] = false;
-}
-
-BruteForceResult knapsackBruteForce(const vector<int> &weights,
-                                    const vector<int> &values, int capacity) {
-  BruteForceResult result{0, vector<bool>(weights.size(), false)};
-  vector<bool> selected(weights.size(), false);
-  knapsack_recursive(0, 0, 0, weights, values, capacity, selected, result);
-  return result;
-}
-
-struct Node {
-  int level;
-  int value;
-  int weight;
-  double bound;
-  vector<bool> selected;
-
-  Node(int l, int v, int w, double b, vector<bool> sel)
-      : level(l), value(v), weight(w), bound(b), selected(sel) {}
-};
-
-double calculate_bound(const Node &u, int n, int capacity,
-                       const vector<tuple<double, int, int>> &items) {
-  if (u.weight >= capacity)
-    return 0;
-  double profit_bound = u.value;
-  int j = u.level + 1;
-  int total_weight = u.weight;
-
-  while (j < n && total_weight + get<1>(items[j]) <= capacity) {
-    total_weight += get<1>(items[j]);
-    profit_bound += get<2>(items[j]);
-    j++;
-  }
-
-  if (j < n) {
-    profit_bound += (capacity - total_weight) * get<0>(items[j]);
-  }
-  return profit_bound;
-}
-
-struct Compare {
-  bool operator()(const pair<double, Node> &a, const pair<double, Node> &b) {
-    return a.first > b.first;
-  }
-};
-
-pair<int, vector<bool>> knapsackBranchAndBound(const vector<int> &weights,
-                                               const vector<int> &values,
-                                               int capacity) {
-  vector<tuple<double, int, int>> items;
-  for (int i = 0; i < weights.size(); i++) {
-    items.emplace_back((double)values[i] / weights[i], weights[i], values[i]);
-  }
-  sort(items.begin(), items.end(), greater<>());
-
-  int n = items.size();
-  priority_queue<pair<double, Node>, vector<pair<double, Node>>, Compare> Q;
-  Node u(-1, 0, 0, 0.0, vector<bool>(n, false));
-  u.bound = calculate_bound(u, n, capacity, items);
-  Q.emplace(1 - u.bound, u);
-
+// BRUTEFORCE
+pair<int, vector<bool>> knapsackBruteForce(const vector<int> &weights, const vector<int> &values, int capacity) {
+  int n = weights.size();
   int max_value = 0;
-  vector<bool> best_selected(n, false);
+  vector<bool> bestSelected(n, false);
 
-  while (!Q.empty()) {
-    u = Q.top().second;
-    Q.pop();
+  // Fungsi rekursif untuk memeriksa semua kombinasi
+  function<void(int, int, int, vector<bool>)> knapsackRecursive =
+      [&](int index, int current_weight, int current_value,
+          vector<bool> selected) {
+        if (index == n) {
+          if (current_weight <= capacity && current_value > max_value) {
+            max_value = current_value;
+            bestSelected = selected;
+          }
+          return;
+        }
 
-    if (u.bound > max_value) {
-      Node v(u.level + 1, u.value, u.weight, 0.0, u.selected);
-      v.weight = u.weight + get<1>(items[v.level]);
-      v.value = u.value + get<2>(items[v.level]);
+        // Tidak memasukkan item saat ini
+        knapsackRecursive(index + 1, current_weight, current_value, selected);
 
-      if (v.weight <= capacity && v.value > max_value) {
-        max_value = v.value;
-        best_selected = v.selected;
-      }
+        // Memasukkan item saat ini
+        if (current_weight + weights[index] <= capacity) {
+          selected[index] = true;
+          knapsackRecursive(index + 1, current_weight + weights[index],
+                            current_value + values[index], selected);
+          selected[index] = false;
+        }
+      };
 
-      v.bound = calculate_bound(v, n, capacity, items);
-      if (v.bound > max_value) {
-        v.selected[v.level] = true;
-        Q.emplace(1 - v.bound, v);
-      }
-
-      v = Node(u.level + 1, u.value, u.weight, 0.0, u.selected);
-      v.bound = calculate_bound(v, n, capacity, items);
-      if (v.bound > max_value) {
-        Q.emplace(1 - v.bound, v);
-      }
-    }
-  }
-  return {max_value, best_selected};
+  knapsackRecursive(0, 0, 0, vector<bool>(n, false));
+  return make_pair(max_value, bestSelected);
 }
 
 void printSelectedItemsBruteForce(const vector<int> &weights,
                                   const vector<int> &values, int capacity) {
   auto result = knapsackBruteForce(weights, values, capacity);
+  vector<bool> bestSelected = result.second;
+
   cout << "Kombinasi BruteForce: {";
   bool first = true;
-  for (int i = 0; i < result.best_selected.size(); i++) {
-    if (result.best_selected[i]) {
-      if (!first)
+  for (int i = 0; i < bestSelected.size(); ++i) {
+    if (bestSelected[i]) {
+      if (!first) {
         cout << ", ";
+      }
       cout << i + 1;
       first = false;
     }
   }
-  cout << "}\n";
+  cout << "}" << endl;
 
   int total_weight = 0;
-  for (int i = 0; i < result.best_selected.size(); i++) {
-    if (result.best_selected[i]) {
+  for (int i = 0; i < bestSelected.size(); ++i) {
+    if (bestSelected[i]) {
       total_weight += weights[i];
     }
   }
-  cout << "Total Weight: " << total_weight << "\n";
+  cout << "Total Weight: " << total_weight << endl;
 }
 
-void printSelectedItemsBranchAndBound( vector<int> &weights,
-                                       vector<int> &values, int capacity) {
+// BRANCH N BOUND
+struct Node {
+  int level;  // level
+  int value;  // profit
+  int weight; // price
+  float bound;
+  vector<bool> selected;
+
+  Node(int l, int v, int w, float b, const vector<bool> &s)
+      : level(l), value(v), weight(w), bound(b), selected(s) {}
+};
+
+// Fungsi untuk menghitung bound node
+float calculateBound(Node u, int n, int capacity, const vector<int> &weights,
+                     const vector<int> &values) {
+  float profit_bound = u.value;
+  int j = u.level + 1;
+  int total_weight = u.weight;
+
+  while (j < n && total_weight + weights[j] <= capacity) {
+    total_weight += weights[j];
+    profit_bound += values[j];
+    j++;
+  }
+
+  if (j < n) {
+    profit_bound += (capacity - total_weight) * values[j] / weights[j];
+  }
+
+  return profit_bound;
+}
+
+pair<int, vector<bool>> knapsackBranchAndBound(const vector<int> &weights,
+                                               const vector<int> &values,
+                                               int capacity) {
   int n = weights.size();
-  // Hitung rasio P/W dan urutkan weights dan values berdasarkan rasio tersebut
-  vector<pair<double, pair<int, int>>> items(n);
-  for (int i = 0; i < n; i++) {
-    items[i] = {(double)values[i] / weights[i], {weights[i], values[i]}};
-  }
-  sort(items.begin(), items.end(), greater<>());
+  queue<Node> Q;
+  vector<bool> initial_selected(n, false);
+  Node u(-1, 0, 0, 0, initial_selected);
+  u.bound = calculateBound(u, n, capacity, weights, values);
+  Q.push(u);
 
-  for (int i = 0; i < n; i++) {
-    weights[i] = items[i].second.first;
-    values[i] = items[i].second.second;
+  int max_value = 0;
+  vector<bool> bestSelected(n, false);
+
+  while (!Q.empty()) {
+    Node v = Q.front();
+    Q.pop();
+
+    if (v.bound > max_value) {
+      u.level = v.level + 1;
+
+      // Memasukkan item saat ini
+      if (u.level < n) {
+        u.weight = v.weight + weights[u.level];
+        u.value = v.value + values[u.level];
+        u.selected = v.selected;
+        u.selected[u.level] = true;
+
+        if (u.weight <= capacity && u.value > max_value) {
+          max_value = u.value;
+          bestSelected = u.selected;
+        }
+
+        u.bound = calculateBound(u, n, capacity, weights, values);
+
+        if (u.bound > max_value) {
+          Q.push(u);
+        }
+
+        // Tidak memasukkan item saat ini
+        u.weight = v.weight;
+        u.value = v.value;
+        u.selected = v.selected;
+        u.selected[u.level] = false;
+        u.bound = calculateBound(u, n, capacity, weights, values);
+
+        if (u.bound > max_value) {
+          Q.push(u);
+        }
+      }
+    }
   }
 
+  return {max_value, bestSelected};
+}
+
+void printSelectedItemsBranchAndBound(const vector<int> &weights,
+                                      const vector<int> &values, int capacity) {
   auto result = knapsackBranchAndBound(weights, values, capacity);
   vector<bool> selected = result.second;
 
@@ -197,63 +186,77 @@ void printSelectedItemsBranchAndBound( vector<int> &weights,
 }
 
 int main() {
-  srand(time(0));
+  // Inisialisasi seed untuk menghasilkan angka acak
+  std::srand(std::time(nullptr));
+  // excel
+  ofstream csvFile("execution_times.csv");
 
-  ofstream csv_file("execution_times.csv");
-  csv_file << "N,Brute Force (ms),BnB (ms)\n";
+  csvFile << "N,Brute Force (ms), BnB (ms)\n";
+  int i = 1;
+  // int times = 0;
+  while (i <= 20) {
+    // Mendefinisikan vektor weights dan values
+    int N = 5 * i;
+    vector<int> weights(N); // Berat Barang
+    vector<int> values(N);  // Nilai Keba3hagiaan
+    int capacity = 150;     // Gaji Budi
 
-  for (int i = 1; i <= 30; i++) {
-    int N = 10 * i;
-    vector<int> weights(N);
-    vector<int> values(N);
-    int capacity = 150;
-
-    for (int j = 0; j < N; j++) {
-      weights[j] = rand() % 81 + 20;
-      values[j] = rand() % 101 + 50;
+    // Mengisi vektor weights dan values dengan data acak
+    for (int i = 0; i < N; ++i) {
+      // Menghasilkan data acak antara 20 dan 100 untuk weights
+      weights[i] = std::rand() % 81 + 20;
+      // Menghasilkan data acak antara 50 dan 150 untuk values
+      values[i] = std::rand() % 101 + 50; // (Range: 50-150)
     }
 
-    cout << "--------------------------------------------------------------\n";
-    cout << "| " << left << setw(6) << "Barang"
-         << " | " << setw(20) << "Berat (Harga Barang)"
-         << " | " << setw(26) << "Nilai Kebahagiaan (Profit)"
-         << " |\n";
-    cout << "--------------------------------------------------------------\n";
-    for (int j = 0; j < N; j++) {
-      cout << "| " << left << setw(6) << j + 1 << " | " << setw(20)
-           << weights[j] << " | " << setw(26) << values[j] << " |\n";
+    // Menampilkan header tabel
+    printf("--------------------------------------------------------------\n");
+    printf("| %-6s | %-20s | %-26s |\n", "Barang", "Berat (Harga Barang)",
+           "Nilai Kebahagiaan (Profit)");
+    printf("--------------------------------------------------------------\n");
+
+    // Menampilkan isi tabel
+    for (size_t i = 0; i < weights.size(); i++) {
+      printf("| %-6zu | %-20d | %-26d |\n", i + 1, weights[i], values[i]);
     }
-    cout << "--------------------------------------------------------------\n";
 
-    clock_t start_time, end_time;
+    printf("--------------------------------------------------------------\n");
 
-    start_time = clock();
-    auto brute_force_result = knapsackBruteForce(weights, values, capacity);
-    end_time = clock();
-    double brute_force_duration =
-        1000.0 * (end_time - start_time) / CLOCKS_PER_SEC;
+    // Mengukur waktu eksekusi knapsackBruteForce
+    auto start = chrono::high_resolution_clock::now();
+    auto bruteForceResult = knapsackBruteForce(weights, values, capacity);
+    auto end = chrono::high_resolution_clock::now();
+    chrono::duration<double, milli> bruteForceDuration = end - start;
 
-    start_time = clock();
-    auto branch_and_bound_result =
+    // Mengukur waktu eksekusi knapsackBranchAndBound
+    start = chrono::high_resolution_clock::now();
+    auto branchAndBoundResult =
         knapsackBranchAndBound(weights, values, capacity);
-    end_time = clock();
-    double branch_and_bound_duration =
-        1000.0 * (end_time - start_time) / CLOCKS_PER_SEC;
+    end = chrono::high_resolution_clock::now();
+    chrono::duration<double, milli> branchAndBoundDuration = end - start;
 
     printSelectedItemsBruteForce(weights, values, capacity);
-    cout << "Brute Force Profit: $" << brute_force_result.max_value << "\n";
-    cout << "Brute Force Execution Time: " << fixed << setprecision(4)
-         << brute_force_duration << " ms\n\n";
+    cout << "Brute Force Profit: $" << bruteForceResult.first << endl;
+    cout << "Brute Force Execution Time: " << bruteForceDuration.count()
+         << " ms" << endl;
+    cout << " " << endl;
     printSelectedItemsBranchAndBound(weights, values, capacity);
-    cout << "Branch and Bound Profit: $" << branch_and_bound_result.first
-         << "\n";
-    cout << "Branch and Bound Execution Time: " << fixed << setprecision(4)
-         << branch_and_bound_duration << " ms\n";
+    cout << "Branch and Bound Profit: $" << branchAndBoundResult.first << endl;
+    cout << "Branch and Bound Execution Time: "
+         << branchAndBoundDuration.count() << " ms" << endl;
 
-    csv_file << N << "," << brute_force_duration << ","
-             << branch_and_bound_duration << "\n";
+    // export to csv
+
+    csvFile << N << "," << bruteForceDuration.count() << ","
+            << branchAndBoundDuration.count() << "\n";
+    // times++;
+    // if (times == 4) {
+    //   times = 0;
+    //   i++;
+    // }
+    i++;
   }
+  csvFile.close();
 
-  csv_file.close();
   return 0;
 }
